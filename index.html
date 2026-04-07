@@ -138,6 +138,9 @@
   const companyInput = document.getElementById("company-input");
   const sendBtn = document.getElementById("send-btn");
 
+  // Keeps last 10 messages (5 exchanges) as context
+  const history = [];
+
   function addMessage(role, content, sql = null) {
     const div = document.createElement("div");
     div.className = `message ${role}`;
@@ -165,11 +168,15 @@
     const thinking = addMessage("thinking", "Thinking…");
 
     try {
-      const url = new URL(API);
-      url.searchParams.set("company_id", company);
-      url.searchParams.set("question", question);
-
-      const res = await fetch(url, { method: "POST" });
+      const res = await fetch(API, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          company_id: company,
+          question: question,
+          history: history.slice(-10)
+        })
+      });
       const data = await res.json();
 
       thinking.remove();
@@ -178,6 +185,9 @@
         addMessage("error", data.detail || "Something went wrong.");
       } else {
         addMessage("assistant", data.answer, data.sql);
+        // Add to history after successful exchange
+        history.push({ role: "user", content: question });
+        history.push({ role: "assistant", content: data.answer });
       }
     } catch (e) {
       thinking.remove();
