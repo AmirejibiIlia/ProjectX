@@ -68,6 +68,7 @@
       align-self: flex-start;
       border-bottom-left-radius: 4px;
       border: 1px solid #e5e5e5;
+      position: relative;
     }
 
     .message.assistant .sql {
@@ -81,8 +82,32 @@
     }
 
     .message.error { background: #fff0f0; color: #c00; border: 1px solid #fcc; align-self: flex-start; }
-
     .message.thinking { color: #999; background: #fff; border: 1px solid #e5e5e5; align-self: flex-start; font-style: italic; }
+
+    /* Rating */
+    .rating {
+      display: none;
+      margin-top: 10px;
+      gap: 4px;
+      flex-wrap: wrap;
+    }
+
+    .message.assistant:hover .rating { display: flex; }
+
+    .rating button {
+      width: 28px;
+      height: 28px;
+      border: 1px solid #e5e5e5;
+      border-radius: 6px;
+      background: #fff;
+      font-size: 12px;
+      cursor: pointer;
+      color: #555;
+      transition: background 0.1s;
+    }
+
+    .rating button:hover { background: #f0f0f0; }
+    .rating button.selected { background: #1a1a1a; color: #fff; border-color: #1a1a1a; }
 
     #input-area {
       padding: 16px 24px;
@@ -132,13 +157,12 @@
 </div>
 
 <script>
-  const API = "https://mai-production-cff7.up.railway.app/query";
+  const API = "https://mai-production-cff7.up.railway.app";
   const messages = document.getElementById("messages");
   const questionInput = document.getElementById("question-input");
   const companyInput = document.getElementById("company-input");
   const sendBtn = document.getElementById("send-btn");
 
-  // Keeps last 10 messages (5 exchanges) as context
   const history = [];
 
   function addMessage(role, content, sql = null) {
@@ -156,6 +180,44 @@
     return div;
   }
 
+  function addRating(div, logId) {
+    const rating = document.createElement("div");
+    rating.className = "rating";
+
+    for (let i = 1; i <= 10; i++) {
+      const btn = document.createElement("button");
+      btn.textContent = i;
+      btn.onclick = async () => {
+        // Highlight selected
+        rating.querySelectorAll("button").forEach(b => b.classList.remove("selected"));
+        btn.classList.add("selected");
+
+        await fetch(`${API}/log/${logId}`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ rating: i })
+        });
+      };
+      rating.appendChild(btn);
+    }
+
+    div.appendChild(rating);
+  }
+
+  async function sendLog(company, question, answer) {
+    try {
+      const res = await fetch(`${API}/log`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ company_id: company, question, answer })
+      });
+      const data = await res.json();
+      return data.log_id;
+    } catch {
+      return null;
+    }
+  }
+
   async function ask() {
     const question = questionInput.value.trim();
     const company = companyInput.value.trim();
@@ -168,26 +230,24 @@
     const thinking = addMessage("thinking", "Thinking…");
 
     try {
-      const res = await fetch(API, {
+      const res = await fetch(`${API}/query`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          company_id: company,
-          question: question,
-          history: history.slice(-10)
-        })
+        body: JSON.stringify({ company_id: company, question, history: history.slice(-10) })
       });
       const data = await res.json();
-
       thinking.remove();
 
       if (!res.ok) {
         addMessage("error", data.detail || "Something went wrong.");
       } else {
-        addMessage("assistant", data.answer, data.sql);
-        // Add to history after successful exchange
+        const msgDiv = addMessage("assistant", data.answer, data.sql);
         history.push({ role: "user", content: question });
         history.push({ role: "assistant", content: data.answer });
+
+        // Log and attach rating UI
+        const logId = await sendLog(company, question, data.answer);
+        if (logId) addRating(msgDiv, logId);
       }
     } catch (e) {
       thinking.remove();
